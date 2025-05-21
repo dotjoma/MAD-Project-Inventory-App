@@ -4,6 +4,7 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application
             android:allowBackup="true"
@@ -30,6 +31,11 @@
         <activity android:name=".RegisterActivity" />
         <activity android:name=".ProfileActivity" />
         <activity android:name=".ManageItemActivity" />
+
+        <service
+            android:name=".ReorderCheckService"
+            android:enabled="true"
+            android:exported="false" />
     </application>
 
 </manifest>

@@ -1,10 +1,12 @@
 package com.example.inventory
 
+import android.app.AlertDialog
 import android.os.Bundle
 import android.view.View
 import android.widget.ProgressBar
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.lifecycle.lifecycleScope
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.textfield.TextInputEditText
 import com.google.android.material.textfield.TextInputLayout
@@ -26,6 +28,7 @@ class ManageItemActivity : AppCompatActivity() {
     private lateinit var etQuantity: TextInputEditText
     private lateinit var etPrice: TextInputEditText
     private lateinit var btnSave: MaterialButton
+    private lateinit var btnDelete: MaterialButton
     private lateinit var progressBar: ProgressBar
 
     private var itemId: Int? = null
@@ -45,13 +48,17 @@ class ManageItemActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_manage_item)
 
-        initViews()
-        setupToolbar()
-        checkEditMode()
-        setupSaveButton()
-    }
+        // Setup toolbar
+        setSupportActionBar(findViewById(R.id.toolbar))
+        supportActionBar?.setDisplayHomeAsUpEnabled(true)
+        supportActionBar?.setDisplayShowHomeEnabled(true)
+        
+        // Setup navigation icon click listener
+        findViewById<com.google.android.material.appbar.MaterialToolbar>(R.id.toolbar).setNavigationOnClickListener {
+            finish()
+        }
 
-    private fun initViews() {
+        // Initialize views
         nameInputLayout = findViewById(R.id.nameInputLayout)
         quantityInputLayout = findViewById(R.id.quantityInputLayout)
         priceInputLayout = findViewById(R.id.priceInputLayout)
@@ -59,21 +66,85 @@ class ManageItemActivity : AppCompatActivity() {
         etQuantity = findViewById(R.id.etQuantity)
         etPrice = findViewById(R.id.etPrice)
         btnSave = findViewById(R.id.btnSave)
+        btnDelete = findViewById(R.id.btnDelete)
         progressBar = findViewById(R.id.progressBar)
-    }
 
-    private fun setupToolbar() {
-        findViewById<androidx.appcompat.widget.Toolbar>(R.id.toolbar).apply {
-            setNavigationOnClickListener { finish() }
-        }
-    }
-
-    private fun checkEditMode() {
+        // Get item ID if in edit mode
         itemId = intent.getIntExtra("item_id", -1).takeIf { it != -1 }
         isEditMode = itemId != null
 
+        // Update UI based on mode
+        supportActionBar?.title = if (isEditMode) "Edit Item" else "Add Item"
+        btnDelete.visibility = if (isEditMode) View.VISIBLE else View.GONE
+
+        // Load item data if in edit mode
         if (isEditMode) {
             loadItemData()
+        }
+
+        // Setup save button
+        btnSave.setOnClickListener {
+            saveItem()
+        }
+
+        // Setup delete button
+        btnDelete.setOnClickListener {
+            showDeleteDialog()
+        }
+    }
+
+    private fun showDeleteDialog() {
+        AlertDialog.Builder(this)
+            .setTitle("Delete Item")
+            .setMessage("Are you sure you want to delete this item?")
+            .setPositiveButton("Delete") { _, _ ->
+                deleteItem()
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun deleteItem() {
+        if (itemId == null) {
+            Toast.makeText(this, "Error: Item ID is missing", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val userId = getUserId()
+        if (userId == -1) {
+            Toast.makeText(this, "Error: User not logged in", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        lifecycleScope.launch {
+            try {
+                progressBar.visibility = View.VISIBLE
+                
+                // First delete any associated reorders
+                supabase.postgrest["reorders"]
+                    .delete {
+                        filter {
+                            eq("item_id", itemId!!)
+                            eq("user_id", userId)
+                        }
+                    }
+
+                // Then delete the item
+                supabase.postgrest["inventory_items"]
+                    .delete {
+                        filter {
+                            eq("id", itemId!!)
+                            eq("user_id", userId)
+                        }
+                    }
+                
+                Toast.makeText(this@ManageItemActivity, "Item deleted successfully", Toast.LENGTH_SHORT).show()
+                finish()
+            } catch (e: Exception) {
+                Toast.makeText(this@ManageItemActivity, "Error deleting item: ${e.message}", Toast.LENGTH_SHORT).show()
+            } finally {
+                progressBar.visibility = View.GONE
+            }
         }
     }
 
@@ -110,46 +181,6 @@ class ManageItemActivity : AppCompatActivity() {
         etName.setText(item.name)
         etQuantity.setText(item.quantity.toString())
         etPrice.setText(item.price.toString())
-    }
-
-    private fun setupSaveButton() {
-        btnSave.setOnClickListener {
-            if (validateInputs()) {
-                saveItem()
-            }
-        }
-    }
-
-    private fun validateInputs(): Boolean {
-        var isValid = true
-
-        // Reset errors
-        nameInputLayout.error = null
-        quantityInputLayout.error = null
-        priceInputLayout.error = null
-
-        // Validate name
-        val name = etName.text?.toString()?.trim() ?: ""
-        if (name.isEmpty()) {
-            nameInputLayout.error = "Name is required"
-            isValid = false
-        }
-
-        // Validate quantity
-        val quantity = etQuantity.text?.toString()?.toIntOrNull()
-        if (quantity == null || quantity < 0) {
-            quantityInputLayout.error = "Enter a valid quantity"
-            isValid = false
-        }
-
-        // Validate price
-        val price = etPrice.text?.toString()?.toDoubleOrNull()
-        if (price == null || price < 0) {
-            priceInputLayout.error = "Enter a valid price"
-            isValid = false
-        }
-
-        return isValid
     }
 
     private fun saveItem() {
